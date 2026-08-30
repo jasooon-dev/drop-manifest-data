@@ -82,6 +82,11 @@ def fetch_all_products(domain, max_pages=5):
     return list(seen.values())
 
 
+def product_url(domain, product):
+    handle = product.get("handle")
+    return f"https://{domain}/products/{handle}" if handle else f"https://{domain}/"
+
+
 def fetch_image_b64(url):
     if not url:
         return None, None
@@ -132,7 +137,8 @@ def in_stock_apparel(products, limit=None):
         if not price_ok:
             continue
         img = p["images"][0]["src"] if p.get("images") else None
-        out.append({"title": p["title"], "price": float(price_ok["price"]), "image_url": img})
+        out.append({"title": p["title"], "price": float(price_ok["price"]), "image_url": img,
+                     "product": p})
     if limit:
         out = out[:limit]
     return out
@@ -169,7 +175,8 @@ def check_chinatown_market():
         img_url = p["images"][0]["src"] if p.get("images") else None
         b64, mime = fetch_image_b64(img_url)
         items.append({"name": p["title"], "was": compare, "now": price,
-                       "image_b64": b64, "image_mime": mime})
+                       "image_b64": b64, "image_mime": mime,
+                       "link": product_url("www.chinatownmarket.com", p)})
     return {"status": "active", "sub": "Sale-tagged items", "items": items,
             "link": "https://www.chinatownmarket.com/"}
 
@@ -228,7 +235,8 @@ def process_sale_brand(brand):
         img_url = p["images"][0]["src"] if p.get("images") else None
         b64, mime = fetch_image_b64(img_url)
         items.append({"name": p["title"], "was": compare, "now": price,
-                       "image_b64": b64, "image_mime": mime})
+                       "image_b64": b64, "image_mime": mime,
+                       "link": product_url(domain, p)})
 
     return {"status": "active", "sub": "Sale collection", "items": items, "link": brand["shop_link"]}
 
@@ -248,7 +256,8 @@ def build_daily_picks(brand):
     items = []
     for c in picked:
         b64, mime = fetch_image_b64(c["image_url"])
-        items.append({"name": c["title"], "now": c["price"], "image_b64": b64, "image_mime": mime})
+        items.append({"name": c["title"], "now": c["price"], "image_b64": b64, "image_mime": mime,
+                       "link": product_url(domain, c["product"])})
     note = None
     if len(picked) < 3:
         note = f"Only {len(picked)} in-stock, non-accessory item{'s' if len(picked) != 1 else ''} in the whole catalog right now."
