@@ -39,6 +39,36 @@ EXCLUDE_KEYWORDS = [
 SIZE_TOKENS = {"XXS", "XS", "S", "M", "L", "XL", "XXL", "XXXL", "2XL", "3XL"}
 WEARABLE_SIZES = {"XS", "S"}
 
+# Keyword groups distilled from a reference set of pieces the user said match
+# their taste (earthy/workwear-adjacent streetwear: nature-motif embroidery,
+# chunky knits/fleece, boxy-oversized cuts, warm neutrals). Used only to rank
+# Daily Picks for brands with no active sale -- never applied to sale
+# detection, which stays purely rule-based (price/stock/size).
+STYLE_KEYWORDS = {
+    "motif": (3, ["butterfly", "moth", "floral", "flower", "embroider"]),
+    "material": (2, ["knit", "cardigan", "chenille", "fleece", "corduroy", "suede", "twill", "jersey"]),
+    "silhouette": (2, ["oversized", "boxy", "relaxed", "work jacket", "workjacket", "bomber"]),
+    "category": (1, ["hoodie", "jacket", "cardigan", "sweater", "jumper", "sweatshirt"]),
+    "color": (1, ["olive", "sage", "brown", "camel", "tan", "cream", "khaki", "beige", "navy"]),
+}
+
+
+def style_score(product):
+    tags = product.get("tags") or ""
+    if isinstance(tags, list):
+        tags = " ".join(tags)
+    text = " ".join([
+        product.get("title") or "",
+        product.get("product_type") or "",
+        tags,
+        product.get("body_html") or "",
+    ]).lower()
+    score = 0
+    for _label, (weight, words) in STYLE_KEYWORDS.items():
+        if any(w in text for w in words):
+            score += weight
+    return score
+
 
 def _size_tokens_in(value):
     if not value:
@@ -87,6 +117,8 @@ BRANDS = [
      "shop_link": "https://bornxraised.com/collections/shop"},
     {"key": "golf_wang", "name": "Golf Wang", "domain": "www.golfwang.com",
      "shop_link": "https://www.golfwang.com/collections/all"},
+    {"key": "kids_of_immigrants", "name": "Kids of Immigrants", "domain": "kidsofimmigrants.us",
+     "shop_link": "https://kidsofimmigrants.us/collections/shop-all"},
 ]
 
 
@@ -298,9 +330,8 @@ def build_daily_picks(brand):
     candidates = in_stock_apparel(products)
     if not candidates:
         return None
-    # Favor variety: sort by price descending to surface more interesting/statement pieces first,
-    # but this is a light heuristic, not a hard rule.
-    candidates.sort(key=lambda c: -c["price"])
+    # Rank by fit with the user's saved style reference first, price as tiebreaker.
+    candidates.sort(key=lambda c: (-style_score(c["product"]), -c["price"]))
     picked = candidates[:3]
     items = []
     for c in picked:
