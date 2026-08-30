@@ -1,0 +1,36 @@
+name: Daily Refresh
+
+on:
+  schedule:
+    # 12:45 UTC daily = 7:45am America/Chicago (CDT) -- 15 min before the
+    # Claude routine reads this data at 8:00am Chicago / 13:00 UTC.
+    - cron: "45 12 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run scraper
+        run: python scraper.py
+
+      - name: Commit and push data.json
+        run: |
+          git config user.name "Drop Manifest Bot"
+          git config user.email "drop-manifest-bot@users.noreply.github.com"
+          git add data.json
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Daily refresh $(date -u +%Y-%m-%d)"
+            git push
+          fi
