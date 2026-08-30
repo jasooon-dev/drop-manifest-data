@@ -32,6 +32,44 @@ EXCLUDE_KEYWORDS = [
     "fob", "boutonniere", "snapback", "fitted", "wallet",
 ]
 
+# All the letter-size tokens we know how to recognize across variant option
+# values, and the subset the user can actually wear. A product whose variants
+# use none of these tokens at all (e.g. "O/S", numeric waist sizes, a
+# color-only option) is treated as size-agnostic and never filtered out.
+SIZE_TOKENS = {"XXS", "XS", "S", "M", "L", "XL", "XXL", "XXXL", "2XL", "3XL"}
+WEARABLE_SIZES = {"XS", "S"}
+
+
+def _size_tokens_in(value):
+    if not value:
+        return set()
+    parts = re.split(r"[\/\s]+", value.strip().upper())
+    return {p for p in parts if p in SIZE_TOKENS}
+
+
+def product_size_tokens(product):
+    """All distinct recognized size tokens used anywhere across this product's variants."""
+    sizes = set()
+    for v in product.get("variants", []):
+        for opt in (v.get("option1"), v.get("option2"), v.get("option3")):
+            sizes |= _size_tokens_in(opt)
+    return sizes
+
+
+def variant_is_wearable(variant):
+    for opt in (variant.get("option1"), variant.get("option2"), variant.get("option3")):
+        if _size_tokens_in(opt) & WEARABLE_SIZES:
+            return True
+    return False
+
+
+def variant_fits(product_sizes, variant):
+    """True if this variant is wearable, OR the product has no recognizable
+    size dimension at all (one-size items aren't filtered)."""
+    if not product_sizes:
+        return True
+    return variant_is_wearable(variant)
+
 BRANDS = [
     {"key": "ryoko_rain", "name": "Ryoko Rain", "domain": "ryokorain.com",
      "shop_link": "https://ryokorain.com/collections/all"},
@@ -101,12 +139,18 @@ def fetch_image_b64(url):
         return None, None
 
 
-def genuine_discounts(products, require_available=False):
-    """Return list of (product, variant, price, compare) with a real markdown."""
+def genuine_discounts(products, require_available=False, require_fit=True):
+    """Return list of (product, variant, price, compare) with a real markdown.
+
+    When require_fit is set, a variant only counts if it's in stock in a
+    wearable size (XS/S) -- unless the product has no recognizable size
+    dimension at all, in which case it's never filtered on size.
+    """
     out = []
     for p in products:
         if is_excluded(p.get("title"), p.get("product_type")):
             continue
+        sizes = product_size_tokens(p) if require_fit else set()
         for v in p.get("variants", []):
             price = float(v.get("price") or 0)
             compare = v.get("compare_at_price")
@@ -114,18 +158,23 @@ def genuine_discounts(products, require_available=False):
             if compare and compare > price and 0 < price <= PRICE_CAP:
                 if require_available and not v.get("available"):
                     continue
+                if require_fit and not variant_fits(sizes, v):
+                    continue
                 out.append((p, v, price, compare))
                 break
     return out
 
 
-def in_stock_apparel(products, limit=None):
-    """Apparel-only, in-stock, under price cap. Used for Daily Picks."""
+def in_stock_apparel(products, limit=None, require_fit=True):
+    """Apparel-only, in-stock, under price cap, in a wearable size. Used for Daily Picks."""
     out = []
     for p in products:
         if is_excluded(p.get("title"), p.get("product_type")):
             continue
+        sizes = product_size_tokens(p) if require_fit else set()
         avail_variants = [v for v in p.get("variants", []) if v.get("available") is True]
+        if require_fit:
+            avail_variants = [v for v in avail_variants if variant_fits(sizes, v)]
         if not avail_variants:
             continue
         price_ok = None
