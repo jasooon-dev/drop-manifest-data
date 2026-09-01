@@ -322,12 +322,14 @@ def process_sale_brand(brand):
     return {"status": "active", "sub": "Sale collection", "items": items, "link": brand["shop_link"]}
 
 
-def build_daily_picks(brand):
+def build_daily_picks(brand, exclude_titles=None):
     domain = brand["domain"]
     products = fetch_all_products(domain)
     if not products:
         return None
     candidates = in_stock_apparel(products)
+    if exclude_titles:
+        candidates = [c for c in candidates if c["title"] not in exclude_titles]
     if not candidates:
         return None
     # Rank by fit with the user's saved style reference first, price as tiebreaker.
@@ -360,12 +362,14 @@ def main():
         time.sleep(0.5)
 
     for brand in BRANDS:
-        status = result["brands"][brand["key"]]["status"]
-        if status != "none":
+        brand_info = result["brands"][brand["key"]]
+        status = brand_info["status"]
+        if status == "unavailable":
             continue
         print(f"Building daily picks for {brand['name']}...", file=sys.stderr)
         try:
-            picks = build_daily_picks(brand)
+            exclude_titles = {item["name"] for item in brand_info.get("items", [])} if status == "active" else None
+            picks = build_daily_picks(brand, exclude_titles=exclude_titles)
         except Exception as e:
             print(f"  ERROR: {e}", file=sys.stderr)
             picks = None
