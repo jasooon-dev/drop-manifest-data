@@ -12,6 +12,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Push auth: prefer a PAT stored as GH_PUSH_TOKEN (repo Settings ->
+          # Secrets and variables -> Actions) over the default GITHUB_TOKEN,
+          # since the default token's write access depends on a repo-level
+          # "Workflow permissions" toggle that failed to take effect twice
+          # (2026-08-31, 2026-09-01) for reasons never pinned down. Falls
+          # back to GITHUB_TOKEN automatically if GH_PUSH_TOKEN isn't set.
+          token: ${{ secrets.GH_PUSH_TOKEN || secrets.GITHUB_TOKEN }}
 
       - uses: actions/setup-python@v5
         with:
