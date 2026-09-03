@@ -19,7 +19,7 @@ jobs:
           # "Workflow permissions" toggle that failed to take effect twice
           # (2026-08-31, 2026-09-01) for reasons never pinned down. Falls
           # back to GITHUB_TOKEN automatically if GH_PUSH_TOKEN isn't set.
-          token: ${{ secrets.GH_PUSH_TOKEN || secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GH_PUSH_TOKEN }}
 
       - uses: actions/setup-python@v5
         with:
