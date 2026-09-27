@@ -119,6 +119,9 @@ BRANDS = [
      "shop_link": "https://www.golfwang.com/collections/all"},
     {"key": "kids_of_immigrants", "name": "Kids of Immigrants", "domain": "kidsofimmigrants.us",
      "shop_link": "https://kidsofimmigrants.us/collections/shop-all"},
+    {"key": "menyard", "name": "Menyard", "domain": "www.menyardhomme.com",
+     "sale_handle": "sale", "currency_to_usd": 1.08,
+     "shop_link": "https://www.menyardhomme.com/collections/shop-all"},
 ]
 
 
@@ -171,12 +174,16 @@ def fetch_image_b64(url):
         return None, None
 
 
-def genuine_discounts(products, require_available=False, require_fit=True):
+def genuine_discounts(products, require_available=False, require_fit=True, currency_to_usd=1.0):
     """Return list of (product, variant, price, compare) with a real markdown.
 
     When require_fit is set, a variant only counts if it's in stock in a
     wearable size (XS/S) -- unless the product has no recognizable size
     dimension at all, in which case it's never filtered on size.
+
+    currency_to_usd converts price to an approximate USD equivalent for the
+    $300 cap check only -- displayed prices always stay in the brand's own
+    currency, since that's what the user would actually be charged.
     """
     out = []
     for p in products:
@@ -187,7 +194,7 @@ def genuine_discounts(products, require_available=False, require_fit=True):
             price = float(v.get("price") or 0)
             compare = v.get("compare_at_price")
             compare = float(compare) if compare else None
-            if compare and compare > price and 0 < price <= PRICE_CAP:
+            if compare and compare > price and 0 < price * currency_to_usd <= PRICE_CAP:
                 if require_available and not v.get("available"):
                     continue
                 if require_fit and not variant_fits(sizes, v):
@@ -197,7 +204,7 @@ def genuine_discounts(products, require_available=False, require_fit=True):
     return out
 
 
-def in_stock_apparel(products, limit=None, require_fit=True):
+def in_stock_apparel(products, limit=None, require_fit=True, currency_to_usd=1.0):
     """Apparel-only, in-stock, under price cap, in a wearable size. Used for Daily Picks."""
     out = []
     for p in products:
@@ -212,7 +219,7 @@ def in_stock_apparel(products, limit=None, require_fit=True):
         price_ok = None
         for v in avail_variants:
             price = float(v.get("price") or 0)
-            if 0 < price <= PRICE_CAP:
+            if 0 < price * currency_to_usd <= PRICE_CAP:
                 price_ok = v
                 break
         if not price_ok:
@@ -293,7 +300,8 @@ def process_sale_brand(brand):
         return {"status": "unavailable", "sub": "Storefront down",
                 "note": "Site could not be reached.", "link": brand["shop_link"]}
 
-    discounts = genuine_discounts(products, require_available=True)
+    discounts = genuine_discounts(products, require_available=True,
+                                   currency_to_usd=brand.get("currency_to_usd", 1.0))
 
     if not discounts:
         return {"status": "none", "sub": "No live sale section",
@@ -327,7 +335,7 @@ def build_daily_picks(brand, exclude_titles=None):
     products = fetch_all_products(domain)
     if not products:
         return None
-    candidates = in_stock_apparel(products)
+    candidates = in_stock_apparel(products, currency_to_usd=brand.get("currency_to_usd", 1.0))
     if exclude_titles:
         candidates = [c for c in candidates if c["title"] not in exclude_titles]
     if not candidates:
