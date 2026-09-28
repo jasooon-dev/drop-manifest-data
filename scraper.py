@@ -120,8 +120,10 @@ BRANDS = [
     {"key": "kids_of_immigrants", "name": "Kids of Immigrants", "domain": "kidsofimmigrants.us",
      "shop_link": "https://kidsofimmigrants.us/collections/shop-all"},
     {"key": "menyard", "name": "Menyard", "domain": "www.menyardhomme.com",
-     "sale_handle": "sale", "currency_to_usd": 1.08,
+     "sale_handle": "sale", "currency_to_usd": 1.08, "currency_symbol": "€",
      "shop_link": "https://www.menyardhomme.com/collections/shop-all"},
+    {"key": "buck_mason", "name": "Buck Mason", "domain": "www.buckmason.com",
+     "storefront_graphql": True, "shop_link": "https://www.buckmason.com/"},
 ]
 
 
@@ -153,6 +155,114 @@ def fetch_all_products(domain, max_pages=5):
         if len(data["products"]) < 250:
             break
     return list(seen.values())
+
+
+GRAPHQL_PRODUCTS_QUERY = """
+query($cursor: String) {
+  products(first: 30, after: $cursor, query: "available_for_sale:true") {
+    pageInfo { hasNextPage }
+    edges {
+      cursor
+      node {
+        title
+        handle
+        productType
+        tags
+        descriptionHtml
+        images(first: 1) { edges { node { url } } }
+        variants(first: 20) {
+          edges {
+            node {
+              availableForSale
+              price { amount }
+              compareAtPrice { amount }
+              selectedOptions { value }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+"""
+
+
+def discover_storefront_api(domain):
+    """Read the public Storefront token from the homepage each run, so a token rotation can't silently break this."""
+    try:
+        html = requests.get(f"https://{domain}/", headers=HEADERS, timeout=TIMEOUT).text
+    except Exception:
+        return None, None
+    token = re.search(r"storefrontAccessToken:\s*['\"]([0-9a-f]+)['\"]", html)
+    shop = re.search(r"([a-z0-9-]+\.myshopify\.com)", html)
+    if not token or not shop:
+        return None, None
+    return shop.group(1), token.group(1)
+
+
+def fetch_products_graphql(shop_domain, token, api_version="2024-04", max_pages=60):
+    """For headless storefronts (e.g. Buck Mason) whose frontend 404s the REST products.json endpoints."""
+    url = f"https://{shop_domain}/api/{api_version}/graphql.json"
+    headers = {"Content-Type": "application/json", "X-Shopify-Storefront-Access-Token": token}
+    products = []
+    cursor = None
+    for _ in range(max_pages):
+        try:
+            r = requests.post(url, headers=headers, timeout=TIMEOUT,
+                               json={"query": GRAPHQL_PRODUCTS_QUERY, "variables": {"cursor": cursor}})
+            body = r.json()
+        except Exception:
+            break
+        if any(e.get("extensions", {}).get("code") == "THROTTLED" for e in (body.get("errors") or [])):
+            time.sleep(2)
+            continue
+        payload = (body.get("data") or {}).get("products")
+        if not payload or not payload["edges"]:
+            break
+        for edge in payload["edges"]:
+            node = edge["node"]
+            variants = []
+            for ve in node["variants"]["edges"]:
+                vn = ve["node"]
+                opt_values = [o["value"] for o in vn["selectedOptions"]]
+                variants.append({
+                    "price": vn["price"]["amount"],
+                    "compare_at_price": vn["compareAtPrice"]["amount"] if vn["compareAtPrice"] else None,
+                    "available": vn["availableForSale"],
+                    "option1": opt_values[0] if len(opt_values) > 0 else None,
+                    "option2": opt_values[1] if len(opt_values) > 1 else None,
+                    "option3": opt_values[2] if len(opt_values) > 2 else None,
+                })
+            img_edges = node["images"]["edges"]
+            products.append({
+                "title": node["title"],
+                "handle": node["handle"],
+                "product_type": node["productType"],
+                "tags": node["tags"] or [],
+                "body_html": node["descriptionHtml"],
+                "variants": variants,
+                "images": [{"src": img_edges[0]["node"]["url"]}] if img_edges else [],
+            })
+            cursor = edge["cursor"]
+        if not payload["pageInfo"]["hasNextPage"]:
+            break
+        time.sleep(0.3)
+    return products
+
+
+_catalog_cache = {}
+
+
+def fetch_catalog(brand):
+    """Full-catalog fetch, cached per brand since the sale check and Daily Picks both need it."""
+    key = brand["key"]
+    if key not in _catalog_cache:
+        if brand.get("storefront_graphql"):
+            shop, token = discover_storefront_api(brand["domain"])
+            _catalog_cache[key] = fetch_products_graphql(shop, token) if token else []
+        else:
+            _catalog_cache[key] = fetch_all_products(brand["domain"])
+    return _catalog_cache[key]
 
 
 def product_url(domain, product):
@@ -294,7 +404,7 @@ def process_sale_brand(brand):
                     break
 
     if products is None:
-        products = fetch_all_products(domain)
+        products = fetch_catalog(brand)
 
     if not products:
         return {"status": "unavailable", "sub": "Storefront down",
@@ -332,7 +442,7 @@ def process_sale_brand(brand):
 
 def build_daily_picks(brand, exclude_titles=None):
     domain = brand["domain"]
-    products = fetch_all_products(domain)
+    products = fetch_catalog(brand)
     if not products:
         return None
     candidates = in_stock_apparel(products, currency_to_usd=brand.get("currency_to_usd", 1.0))
@@ -365,7 +475,8 @@ def main():
             print(f"  ERROR: {e}", file=sys.stderr)
             info = {"status": "unavailable", "sub": "Storefront down",
                      "note": "Could not check this brand today.", "link": brand["shop_link"]}
-        result["brands"][brand["key"]] = {"name": brand["name"], **info}
+        result["brands"][brand["key"]] = {"name": brand["name"],
+                                          "currency_symbol": brand.get("currency_symbol", "$"), **info}
         print(f"  -> {info['status']}", file=sys.stderr)
         time.sleep(0.5)
 
@@ -382,7 +493,8 @@ def main():
             print(f"  ERROR: {e}", file=sys.stderr)
             picks = None
         if picks and picks["items"]:
-            result["daily_picks"][brand["key"]] = {"name": brand["name"], **picks}
+            result["daily_picks"][brand["key"]] = {"name": brand["name"],
+                                                   "currency_symbol": brand.get("currency_symbol", "$"), **picks}
         time.sleep(0.5)
 
     with open("data.json", "w") as f:
