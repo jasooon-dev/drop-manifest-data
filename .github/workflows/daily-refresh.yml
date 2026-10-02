@@ -2,9 +2,8 @@ name: Daily Refresh
 
 on:
   schedule:
-    # 12:45 UTC daily = 7:45am America/Chicago (CDT) -- 15 min before the
-    # Claude routine reads this data at 8:00am Chicago / 13:00 UTC.
-    - cron: "45 12 * * *"
+    # Hours ahead of the 13:00 UTC Claude routine: GitHub starts scheduled runs late under load (5-6h on 2026-09-30/10-01).
+    - cron: "17 6 * * *"
   workflow_dispatch: {}
 
 jobs:
