@@ -1,5 +1,5 @@
 {
-  "date": "2026-10-02",
+  "date": "2026-10-03",
   "brands": {
     "ryoko_rain": {
       "name": "Ryoko Rain",
@@ -37,9 +37,9 @@
     "chinatown_market": {
       "name": "Chinatown Market",
       "currency_symbol": "$",
-      "status": "unavailable",
-      "sub": "Storefront down",
-      "note": "Site is password-gated right now.",
+      "status": "none",
+      "sub": "No live sale section",
+      "note": "Nothing at the moment.",
       "link": "https://www.chinatownmarket.com/"
     },
     "aries_arise": {
